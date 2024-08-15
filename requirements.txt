@@ -1,1 +1,5 @@
 opentele~=1.15.1
+aiofiles~=24.1.0
+Telethon~=1.36.0
+pypinyin~=0.52.0
+python-telegram-bot~=21.4.0
