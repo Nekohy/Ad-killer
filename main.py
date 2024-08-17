@@ -3,18 +3,18 @@ import random
 import re
 import string
 
-import aiofiles
 from opentele.api import API
 from opentele.tl import TelegramClient
 from pypinyin import lazy_pinyin
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from telegram.ext import CallbackContext
-from telethon import functions
 from telethon.errors import UserDeactivatedBanError
 from telethon.sessions import StringSession
 from telethon.sync import TelegramClient
 from telethon.tl.functions.messages import CheckChatInviteRequest
+from telethon.tl.types import User, Channel
+from telegram.constants import ChatMemberStatus
 
 
 class Userbot:
@@ -27,26 +27,36 @@ class Userbot:
         return ''.join(random.choices(letters, k=5))
 
     async def check_link(self, private, public):
-        await self.client.catch_up()
+        datas = []
         if not private and not public:
             return None
         elif private:
-            private = await self.client(CheckChatInviteRequest(private))
+            for i in private:
+                types = await self.client(CheckChatInviteRequest(i))
+                datas.append(types.title)
+                datas.append(types.about)
         elif public:
-            await self.client(functions.channels.GetChannelsRequest(
-                id=[public]
-            ))
+            for i in public:
+                types = await self.client.get_entity(i)
+                if isinstance(types, Channel):
+                    datas.append(types.title)
+                # todo 用户判断
+                elif isinstance(types, User):
+                    pass
+        return str(datas)
 
     async def login(self):
-        acc = random.randint(0, len(self.accs))
+        acc = random.randint(0, len(self.accs) - 1)
         session = self.accs[acc]
         api = API.TelegramDesktop.Generate(system="windows", unique_id=await self.__generate_random_string())
         try:
-            self.client = TelegramClient(StringSession(session), api)
+            self.client = TelegramClient(StringSession(session), api=api)
             await self.client.connect()
-            return False
+            return None
         except UserDeactivatedBanError:
             return acc
+        except ValueError as e:
+            return str(e)
 
 
 class Bot:
@@ -74,7 +84,17 @@ class Bot:
 
     async def ban_user(self, userid):
         self.update.message.reply_text(f"已封禁用户 tg://openmessage?user_id={userid}")
-        return self.update.ban_chat_member(self.chat_id, userid, revoke_messages=True)
+        return await self.context.bot.ban_chat_member(self.chat_id, userid, revoke_messages=True)
+
+    async def is_admin(self, user_id):
+        chat_member = await self.context.bot.get_chat_member(self.chat_id, user_id)
+        if chat_member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+            await self.update.message.reply_text("无法举报管理员/群主")
+        elif chat_member.status in [ChatMemberStatus.BANNED, ChatMemberStatus.LEFT]:
+            await self.update.message.reply_text("该用户已不在群里")
+        else:
+            return None
+        return True
 
 
 async def is_sublist_adjacent(sublist, mainlist):
@@ -82,7 +102,7 @@ async def is_sublist_adjacent(sublist, mainlist):
     for i in range(len(mainlist) - sub_len + 1):
         if mainlist[i:i + sub_len] == sublist:
             return True
-    return False
+    return None
 
 
 def load_config():
@@ -97,19 +117,25 @@ def save_config():
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-async def process_bio(text):
-    word_detect = private_links = public_groups = None
+async def process_ban_word(text):
+    if not text:
+        return None
     if config["strict_mode"]:
         for ban_word in config["ban_words"]:
+            process_text = lazy_pinyin(text.replace(" ", ""))
             ban_pinyin = lazy_pinyin(ban_word)
-            word_detect = await is_sublist_adjacent(lazy_pinyin(text.replace(" ", "")), ban_pinyin)
+            word_detect = await is_sublist_adjacent(process_text, ban_pinyin)
             if word_detect:
                 break
     else:
         for ban_word in config["ban_words"]:
-            if ban_word in text:
+            if ban_word in text.replace(" ", ""):
                 word_detect = True
                 break
+    return word_detect
+
+
+async def process_link(text):
     if config["bio_link_detect"]:
         # 私有链接模式 - 修改为捕获组以便提取后半部分
         private_link_pattern = r'\b(?:https?://)?t\.me/\+([a-zA-Z0-9_-]+)'
@@ -121,25 +147,36 @@ async def process_bio(text):
         text = re.sub(email_pattern, '', text)
         private_links = re.findall(private_link_pattern, text)
         public_groups = re.findall(public_group_pattern, text)
-    return private_links, public_groups, word_detect
+    return private_links, public_groups
 
 
 async def report(update: Update, context: CallbackContext):
     bot = Bot(update, context)
     text, user_id, bio, user_photo = await bot.get_user_info()
-    private_links, public_groups, word_detect = await process_bio(bio)
+    if await bot.is_admin(user_id):
+        return
+    private_links, public_groups = await process_link(bio)
+    word_detect = await process_ban_word(text)
     if word_detect:
         await bot.ban_user(user_id)
+        return await update.message.reply_text(f"用户{user_id}已被封禁")
     if config["bio_link_detect"]:
         if config["accs"]:
             userbot = Userbot(config["accs"])
-            num = await userbot.login()
-            if num:
-                await update.message.reply_text(f"session{num}失效，已清除，请重新输入命令")
+            return_code = await userbot.login()
+            if isinstance(return_code, int):
+                await update.message.reply_text(f"session{return_code}失效，已清除，请重新输入命令")
+            elif isinstance(return_code, str):
+                await update.message.reply_text(f"错误代码 {return_code}")
             else:
-                await userbot.check_link(private_links, public_groups)
+                check_result = await userbot.check_link(private_links, public_groups)
+                result = await process_ban_word(check_result)
+                if result:
+                    await bot.ban_user(user_id)
+                    return await update.message.reply_text(f"用户{user_id}已被封禁")
         else:
             await update.message.reply_text("当前无可用账号")
+    return await update.message.reply_text(f"用户{user_id}未检测到违禁词")
 
 
 # 处理菜单操作

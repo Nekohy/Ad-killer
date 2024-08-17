@@ -1,21 +1,14 @@
 {
-  "bot_token": "XXX",
+  "bot_token": "xxxx",
   "admin": [
     "175454711",
     "173173721"
   ],
-  "accs": [
-    "1",
-    "2",
-    "3"
-  ],
+  "accs": ["XXXX"],
   "bio_link_detect": true,
   "ocr_detect": false,
   "strict_mode": true,
   "ban_words": [
-    "测试",
-    "跑分",
-    "喵",
-    "唔"
+    "测试"
   ]
 }
