@@ -184,7 +184,6 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     back = InlineKeyboardMarkup([[InlineKeyboardButton("返回主菜单", callback_data='main_menu')]])
     query = update.callback_query
     user = str(update.effective_user.id)
-    a = config["admin"]
     if query:
         await query.answer()
         data = query.data
