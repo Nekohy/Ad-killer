@@ -1,0 +1,17 @@
+{
+  "bot_token": "XXXX",
+  "accs": [
+    "1",
+    "2",
+    "3"
+  ],
+  "bio_link_detect": true,
+  "ocr_detect":false,
+  "strict_mode": true,
+  "ban_words": [
+    "测试",
+    "跑分",
+    "喵",
+    "唔"
+  ]
+}

@@ -10,6 +10,7 @@ from pypinyin import lazy_pinyin
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from telegram.ext import CallbackContext
+from telethon import functions
 from telethon.errors import UserDeactivatedBanError
 from telethon.sessions import StringSession
 from telethon.sync import TelegramClient
@@ -17,7 +18,7 @@ from telethon.tl.functions.messages import CheckChatInviteRequest
 
 
 class Userbot:
-    def __init__(self, accs: dict):
+    def __init__(self, accs: list):
         self.accs = accs
         self.client = None
 
@@ -25,23 +26,29 @@ class Userbot:
         letters = string.ascii_lowercase
         return ''.join(random.choices(letters, k=5))
 
-    async def __process_link(self):
-        pass
+    async def check_link(self, private, public):
+        await self.client.catch_up()
+        if not private and not public:
+            return None
+        elif private:
+            private = await self.client(CheckChatInviteRequest(private))
+        elif public:
+            await self.client(functions.channels.GetChannelsRequest(
+                id=[public]
+            ))
 
-    async def check_link(self):
-        try:
-            await self.client.catch_up()
-            await self.client(CheckChatInviteRequest(link))
-        except UserDeactivatedBanError:
-            print("用户已被封禁")
-
-    async def login(self, session=None):
+    async def login(self):
+        acc = random.randint(0, len(self.accs))
+        session = self.accs[acc]
         api = API.TelegramDesktop.Generate(system="windows", unique_id=await self.__generate_random_string())
-        with TelegramClient(StringSession(session), api) as client:
-            return await client.session.save()
+        try:
+            self.client = TelegramClient(StringSession(session), api)
+            await self.client.connect()
+            return False
+        except UserDeactivatedBanError:
+            return acc
 
-    async def main(self):
-        pass
+
 
 
 class Bot:
@@ -50,13 +57,13 @@ class Bot:
         self.context = context
         self.chat_id = update.effective_chat.id
 
-    async def get_info(self):
+    async def get_user_info(self):
         message = self.update.message
         # 检查 /report 命令是否是回复某条消息
         if message.reply_to_message:
             reply_message = message.reply_to_message
             user_info = await self.context.bot.get_chat(reply_message.from_user.id)
-            if user_info.photo:
+            if user_info.photo and config["ocr_detect"]:
                 file = await self.context.bot.get_file(user_info.photo.big_file_id)
                 await file.download_to_drive(f'./temp/{user_info.id}.jpg')
                 user_photo = f'./temp/{user_info.id}.jpg'
@@ -67,8 +74,9 @@ class Bot:
             await self.update.message.reply_text("请回复要举报的消息")
             return None
 
-    async def ban_user(self):
-        pass
+    async def ban_user(self, userid):
+        self.update.message.reply_text(f"已封禁用户 tg://openmessage?user_id={userid}")
+        return self.update.ban_chat_member(self.chat_id, userid, revoke_messages=True)
 
 
 async def read_json(path):
@@ -128,8 +136,20 @@ async def process_bio(text):
 
 async def report(update: Update, context: CallbackContext):
     bot = Bot(update, context)
-    text, user_id, bio, user_photo = await bot.get_info()
-    link = await process_bio(bio)
+    text, user_id, bio, user_photo = await bot.get_user_info()
+    private_links, public_groups, word_detect = await process_bio(bio)
+    if word_detect:
+        await bot.ban_user(user_id)
+    if config["bio_link_detect"]:
+        if config["accs"]:
+            userbot = Userbot(config["accs"])
+            num = await userbot.login()
+            if num:
+                await update.message.reply_text(f"session{num}失效，已清除，请重新输入命令")
+            else:
+                await userbot.check_link(private_links, public_groups)
+        else:
+            await update.message.reply_text("当前无可用账号")
 
 
 # 处理菜单操作
@@ -147,9 +167,6 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text('请选择要修改的设置：', reply_markup=init_keyboard)
         else:
             await message.reply_text('请选择要修改的设置：', reply_markup=init_keyboard)
-    elif data == 'set_bot_token':
-        await query.edit_message_text("请输入新的 Bot Token:", reply_markup=back)
-        context.user_data['expect_input'] = 'bot_token'
     elif data == 'manage_accs':
         accs_text = "\n".join(config['accs'])
         await query.edit_message_text(f"当前账号列表：\n{accs_text}\n\n请输入新的账号列表，每行一个账号：",
@@ -183,10 +200,7 @@ async def input_params(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     input_type = context.user_data['expect_input']
     del context.user_data['expect_input']
-    if input_type == 'bot_token':
-        config['bot_token'] = update.message.text
-        await update.message.reply_text("Bot Token 已更新", reply_markup=init_keyboard)
-    elif input_type == 'accs':
+    if input_type == 'accs':
         config['accs'] = [acc.strip() for acc in update.message.text.split('\n') if acc.strip()]
         await update.message.reply_text("账号列表已更新", reply_markup=init_keyboard)
     elif input_type == 'ban_words':
@@ -208,7 +222,6 @@ def main():
 
 if __name__ == '__main__':
     init_keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("设置 Bot Token", callback_data='set_bot_token')],
         [InlineKeyboardButton("管理账号列表", callback_data='manage_accs')],
         [InlineKeyboardButton("切换生物链接检测", callback_data='toggle_bio_link_detect')],
         [InlineKeyboardButton("切换严格模式", callback_data='toggle_strict_mode')],
@@ -220,6 +233,7 @@ if __name__ == '__main__':
         "accs": [],
         "bio_link_detect": False,
         "strict_mode": False,
+        "ocr_detect": False,
         "ban_words": []
     }
     main()
