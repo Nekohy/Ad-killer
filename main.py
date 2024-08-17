@@ -262,7 +262,7 @@ if __name__ == '__main__':
     init_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("管理员列表", callback_data='admin')],
         [InlineKeyboardButton("账号列表", callback_data='userbot')],
-        [InlineKeyboardButton("切换生物链接检测", callback_data='toggle_bio_link_detect')],
+        [InlineKeyboardButton("切换简介链接检测", callback_data='toggle_bio_link_detect')],
         [InlineKeyboardButton("切换严格模式", callback_data='toggle_strict_mode')],
         [InlineKeyboardButton("管理禁用词", callback_data='manage_ban_words')],
         [InlineKeyboardButton("关闭", callback_data='close')]
