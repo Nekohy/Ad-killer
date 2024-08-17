@@ -49,8 +49,6 @@ class Userbot:
             return acc
 
 
-
-
 class Bot:
     def __init__(self, update, context):
         self.update = update
@@ -77,14 +75,6 @@ class Bot:
     async def ban_user(self, userid):
         self.update.message.reply_text(f"已封禁用户 tg://openmessage?user_id={userid}")
         return self.update.ban_chat_member(self.chat_id, userid, revoke_messages=True)
-
-
-async def read_json(path):
-    async with aiofiles.open(path, "r") as f:
-        data = await f.read()
-        json_data = json.loads(data)
-    return json_data["bot_token"], json_data["accs"], json_data["bio_link_detect"], json_data["strict_mode"], json_data[
-        "ban_words"]
 
 
 async def is_sublist_adjacent(sublist, mainlist):
@@ -156,20 +146,29 @@ async def report(update: Update, context: CallbackContext):
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     back = InlineKeyboardMarkup([[InlineKeyboardButton("返回主菜单", callback_data='main_menu')]])
     query = update.callback_query
+    user = str(update.effective_user.id)
+    a = config["admin"]
     if query:
         await query.answer()
         data = query.data
     else:
         message = update.message
         data = 'main_menu'
+    if user not in config["admin"]:
+        return await message.reply_text("您不在管理员名单内")
     if data == 'main_menu':
         if query:
             await query.edit_message_text('请选择要修改的设置：', reply_markup=init_keyboard)
         else:
             await message.reply_text('请选择要修改的设置：', reply_markup=init_keyboard)
-    elif data == 'manage_accs':
+    elif data == 'admin':
+        accs_text = "\n".join(config['admin'])
+        await query.edit_message_text(f"当前管理员列表：\n{accs_text}\n\n请输入新的id列表，空格分隔：",
+                                      reply_markup=back)
+        context.user_data['expect_input'] = 'admin'
+    elif data == 'userbot':
         accs_text = "\n".join(config['accs'])
-        await query.edit_message_text(f"当前账号列表：\n{accs_text}\n\n请输入新的账号列表，每行一个账号：",
+        await query.edit_message_text(f"当前账号列表：\n{accs_text}\n\n请输入新的id列表，空格分隔：",
                                       reply_markup=back)
         context.user_data['expect_input'] = 'accs'
     elif data == 'toggle_bio_link_detect':
@@ -201,7 +200,10 @@ async def input_params(update: Update, context: ContextTypes.DEFAULT_TYPE):
     input_type = context.user_data['expect_input']
     del context.user_data['expect_input']
     if input_type == 'accs':
-        config['accs'] = [acc.strip() for acc in update.message.text.split('\n') if acc.strip()]
+        config['accs'] = [acc.strip() for acc in update.message.text.split() if acc.strip()]
+        await update.message.reply_text("账号列表已更新", reply_markup=init_keyboard)
+    elif input_type == 'admin':
+        config['admin'] = [acc.strip() for acc in update.message.text.split() if acc.strip()]
         await update.message.reply_text("账号列表已更新", reply_markup=init_keyboard)
     elif input_type == 'ban_words':
         config['ban_words'] = [word.strip() for word in update.message.text.split(',') if word.strip()]
@@ -222,7 +224,8 @@ def main():
 
 if __name__ == '__main__':
     init_keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("管理账号列表", callback_data='manage_accs')],
+        [InlineKeyboardButton("管理员列表", callback_data='admin')],
+        [InlineKeyboardButton("账号列表", callback_data='userbot')],
         [InlineKeyboardButton("切换生物链接检测", callback_data='toggle_bio_link_detect')],
         [InlineKeyboardButton("切换严格模式", callback_data='toggle_strict_mode')],
         [InlineKeyboardButton("管理禁用词", callback_data='manage_ban_words')],
@@ -230,6 +233,7 @@ if __name__ == '__main__':
     ])
     config = {
         "bot_token": "",
+        "admin": [],
         "accs": [],
         "bio_link_detect": False,
         "strict_mode": False,

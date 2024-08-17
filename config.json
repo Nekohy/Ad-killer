@@ -1,12 +1,16 @@
 {
-  "bot_token": "XXXX",
+  "bot_token": "XXX",
+  "admin": [
+    "175454711",
+    "173173721"
+  ],
   "accs": [
     "1",
     "2",
     "3"
   ],
   "bio_link_detect": true,
-  "ocr_detect":false,
+  "ocr_detect": false,
   "strict_mode": true,
   "ban_words": [
     "测试",
