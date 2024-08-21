@@ -7,9 +7,9 @@
 # todo
 1.类型判断账号和管理员列表，并强制添加群主和有ban人权限的管理进入bot
 
-2.给/start做鉴权
+~~2.给/start做鉴权~~，给带ban权限的管理一个身份
 
-3.去除bio_link_detect
+~~3.去除bio_link_detect~~
 
 ~~4.用query.answer来弹出界面而不是发送消息~~
 
