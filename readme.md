@@ -2,9 +2,26 @@
 检测用户发送文字，名称，简介，
 若额外配置User可检测简介内私有/公开群组的链接信息，
 与关键词匹配（严格模式匹配拼音）并封禁用户
+# todo
+1.类型判断账号和管理员列表，并强制添加群主和有ban人权限的管理进入bot
+2.给/start做鉴权
+3.去除bio_link_detect
+4.用query.answer来弹出界面而不是发送消息
+# 运行说明
+填写好参数后安装依赖
+pip3 install -r requirements.txt 
+python3 main.py
+初次使用请填写bot_token
+并在群组内运行/start，默认给予群主管理权限
+
+# 使用说明
+若填写错误导致无法进入，可以运行/start
+
+请使用 /report 回复需要举报的消息
+
+在群组内可以使用 /config 唤出菜单（请注意隐藏重要信息）或在私聊内输入/config + 群组id(应为-100开头)
+
 # 参数说明
-## bot_token 
-请填写你的bot_token
 ## admin
 列表 请填写可管理该bot的用户ID
 ## acc
@@ -17,12 +34,4 @@ todo 请保持false
 将文本转换成拼音与违禁词相比较，误杀概率较大，慎用 
 ## ban_words
 违禁词列表
-
-# 使用说明
-填写好参数后安装依赖
-pip3 install -r requirements.txt 
-并直接python3 main.py即可
-/init 为配置bot
-/report 为举报用户
-
 # 欢迎PR代码，Thx
