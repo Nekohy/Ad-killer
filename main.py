@@ -72,7 +72,6 @@ class Bot:
         [InlineKeyboardButton("管理员列表", callback_data='admin')],
         [InlineKeyboardButton("账号列表", callback_data='userbot')],
         [InlineKeyboardButton("禁用词列表", callback_data='manage_ban_words')],
-        [InlineKeyboardButton("切换简介链接检测", callback_data='toggle_bio_link_detect')],
         [InlineKeyboardButton("切换严格模式", callback_data='toggle_strict_mode')],
         [InlineKeyboardButton("关闭", callback_data='close')]
     ])
@@ -83,7 +82,7 @@ class Bot:
         if message.reply_to_message:
             reply_message = message.reply_to_message
             user_info = await self.context.bot.get_chat(reply_message.from_user.id)
-            if user_info.photo and init_config["ocr_detect"]:
+            if user_info.photo and self.config["ocr_detect"]:
                 file = await self.context.bot.get_file(user_info.photo.big_file_id)
                 await file.download_to_drive(f'./temp/{user_info.id}.jpg')
                 user_photo = f'./temp/{user_info.id}.jpg'
@@ -143,10 +142,6 @@ class Bot:
             await query.edit_message_text(f"当前禁用词：{ban_words_text}\n\n请输入新的禁用词列表，用逗号分隔：",
                                           reply_markup=back)
             self.context.user_data['expect_input'] = 'ban_words'
-        elif data == 'toggle_bio_link_detect':
-            self.config['bio_link_detect'] = not self.config['bio_link_detect']
-            await query.answer(text=f"简介链接检测已{'开启' if self.config['bio_link_detect'] else '关闭'}",
-                               show_alert=True)
         elif data == 'toggle_strict_mode':
             self.config['strict_mode'] = not self.config['strict_mode']
             await query.answer(f"严格模式已{'开启' if self.config['strict_mode'] else '关闭'}",
@@ -181,26 +176,26 @@ async def is_sublist_adjacent(sublist, mainlist):
             return True
     return None
 
-async def process_ban_word(text):
+async def process_ban_word(text, config):
     if not text:
         return None
-    if init_config["strict_mode"]:
-        for ban_word in init_config["ban_words"]:
+    if config["strict_mode"]:
+        for ban_word in config["ban_words"]:
             process_text = lazy_pinyin(text.replace(" ", ""))
             ban_pinyin = lazy_pinyin(ban_word)
             word_detect = await is_sublist_adjacent(process_text, ban_pinyin)
             if word_detect:
                 break
     else:
-        for ban_word in init_config["ban_words"]:
+        for ban_word in config["ban_words"]:
             if ban_word in text.replace(" ", ""):
                 word_detect = True
                 break
     return word_detect
 
 
-async def process_link(text):
-    if init_config["bio_link_detect"]:
+async def process_link(text, config):
+    if len(config["accs"]) != 0:
         # 私有链接模式 - 修改为捕获组以便提取后半部分
         private_link_pattern = r'\b(?:https?://)?t\.me/\+([a-zA-Z0-9_-]+)'
         # 公有群组模式 - 修改以匹配更短的用户名
@@ -216,30 +211,28 @@ async def process_link(text):
 
 async def report(update: Update, context: CallbackContext):
     bot = Bot(update, context)
+    config = bot.config
     text, user_id, bio, user_photo = await bot.get_user_info()
     if await bot.is_admin(user_id):
         return
-    private_links, public_groups = await process_link(bio)
-    word_detect = await process_ban_word(text)
+    private_links, public_groups = await process_link(bio,config)
+    word_detect = await process_ban_word(text,config)
     if word_detect:
         await bot.ban_user(user_id)
         return await update.message.reply_text(f"用户{user_id}已被封禁")
-    if init_config["bio_link_detect"]:
-        if init_config["accs"]:
-            userbot = Userbot(init_config["accs"])
-            return_code = await userbot.login()
-            if isinstance(return_code, int):
-                await update.message.reply_text(f"session{return_code}失效，已清除，请重新输入命令")
-            elif isinstance(return_code, str):
-                await update.message.reply_text(f"错误代码 {return_code}")
-            else:
-                check_result = await userbot.check_link(private_links, public_groups)
-                result = await process_ban_word(check_result)
-                if result:
-                    await bot.ban_user(user_id)
-                    return await update.message.reply_text(f"用户{user_id}已被封禁")
+    if len(config["accs"]) != 0:
+        userbot = Userbot(config["accs"])
+        return_code = await userbot.login()
+        if isinstance(return_code, int):
+            await update.message.reply_text(f"session{return_code}失效，已清除，请重新输入命令")
+        elif isinstance(return_code, str):
+            await update.message.reply_text(f"错误代码 {return_code}")
         else:
-            await update.message.reply_text("当前无可用账号")
+            check_result = await userbot.check_link(private_links, public_groups)
+            result = await process_ban_word(check_result,config)
+            if result:
+                await bot.ban_user(user_id)
+                return await update.message.reply_text(f"用户{user_id}已被封禁")
     return await update.message.reply_text(f"用户{user_id}未检测到违禁词")
 
 
@@ -261,21 +254,23 @@ async def init_params(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await bot.input_params()
 
 async def init(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type == "private":
+        return await update.message.reply_text("如果想要初始化请使用群管理员身份在群内执行/start指令")
+    chat_id = update.message.chat_id
+    admin_id_list = []
+    admin_origin_list = await context.bot.get_chat_administrators(chat_id)
+    for admin in admin_origin_list:
+        if admin.status == "creator":
+            admin_id_list.append(admin.user.id)
+    if update.effective_user.id not in admin_id_list:
+        return await update.message.reply_text("您不是群主")
     init_config = {
-        "admin": [],
+        "admin": admin_id_list,
         "accs": [],
-        "bio_link_detect": False,
         "strict_mode": False,
         "ocr_detect": False,
         "ban_words": []
     }
-    chat_id = update.message.chat_id
-    admin_origin_list = await context.bot.get_chat_administrators(chat_id)
-    admin_id_list = []
-    for admin in admin_origin_list:
-        if admin.status == "creator":
-            admin_id_list.append(admin.user.id)
-    init_config['admin'] = admin_id_list
     db.put(str(chat_id).encode(), json.dumps(init_config).encode())
     await update.message.reply_text("初始化完成")
 
@@ -291,14 +286,6 @@ def main():
 
 if __name__ == '__main__':
     db_path = './leveldb'
-    init_config = {
-        "admin": [],
-        "accs": [],
-        "bio_link_detect": False,
-        "strict_mode": False,
-        "ocr_detect": False,
-        "ban_words": []
-    }
     if not os.path.exists(db_path):
         bot_token = input("请输入您的bot_token: ")
         db = plyvel.DB('./leveldb', create_if_missing=True)
