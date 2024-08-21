@@ -13,6 +13,9 @@
 
 ~~4.用query.answer来弹出界面而不是发送消息~~
 
+5. 检测用户的大会员emoji表情
+
+6. 补全OCR模块，添加对群组照片的处理
 # 运行说明
 填写好参数后安装依赖
 
@@ -35,9 +38,7 @@ python3 main.py
 ## admin
 列表 请填写可管理该bot的用户ID
 ## acc
-列表 请填写用于link校验的账号stringsession（Telethon格式）
-## bio_link_detect
-False则不检测bio中的link acc为空时请保持False
+列表 请填写用于link校验的账号stringsession（Telethon格式）若填写则会执行用户简介检测
 ## ocr_detect
 todo 请保持false
 ## strict_mode
