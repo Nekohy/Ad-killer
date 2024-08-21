@@ -1,17 +1,27 @@
 # 用途
 检测用户发送文字，名称，简介，
+
 若额外配置User可检测简介内私有/公开群组的链接信息，
+
 与关键词匹配（严格模式匹配拼音）并封禁用户
 # todo
 1.类型判断账号和管理员列表，并强制添加群主和有ban人权限的管理进入bot
+
 2.给/start做鉴权
+
 3.去除bio_link_detect
+
 4.用query.answer来弹出界面而不是发送消息
+
 # 运行说明
 填写好参数后安装依赖
+
 pip3 install -r requirements.txt 
+
 python3 main.py
+
 初次使用请填写bot_token
+
 并在群组内运行/start，默认给予群主管理权限
 
 # 使用说明
