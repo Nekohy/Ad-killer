@@ -1,4 +1,7 @@
 import json
+import os
+
+import plyvel
 import random
 import re
 import string
@@ -63,7 +66,16 @@ class Bot:
     def __init__(self, update, context):
         self.update = update
         self.context = context
-        self.chat_id = update.effective_chat.id
+        self.chat_id = context.user_data["chat_id"]
+        self.config = json.loads(db.get(str(self.chat_id).encode()).decode())
+        self.keyword = InlineKeyboardMarkup([
+        [InlineKeyboardButton("管理员列表", callback_data='admin')],
+        [InlineKeyboardButton("账号列表", callback_data='userbot')],
+        [InlineKeyboardButton("切换简介链接检测", callback_data='toggle_bio_link_detect')],
+        [InlineKeyboardButton("切换严格模式", callback_data='toggle_strict_mode')],
+        [InlineKeyboardButton("管理禁用词", callback_data='manage_ban_words')],
+        [InlineKeyboardButton("关闭", callback_data='close')]
+    ])
 
     async def get_user_info(self):
         message = self.update.message
@@ -71,7 +83,7 @@ class Bot:
         if message.reply_to_message:
             reply_message = message.reply_to_message
             user_info = await self.context.bot.get_chat(reply_message.from_user.id)
-            if user_info.photo and config["ocr_detect"]:
+            if user_info.photo and init_config["ocr_detect"]:
                 file = await self.context.bot.get_file(user_info.photo.big_file_id)
                 await file.download_to_drive(f'./temp/{user_info.id}.jpg')
                 user_photo = f'./temp/{user_info.id}.jpg'
@@ -95,7 +107,70 @@ class Bot:
         else:
             return None
         return True
+    async def menu(self):
+        back = InlineKeyboardMarkup([[InlineKeyboardButton("返回主菜单", callback_data='main_menu')]])
+        user = str(self.update.effective_user.id)
+        query = self.update.callback_query
+        if query:
+            await query.answer()
+            message = query.message
+            data = query.data
+        else:
+            message = self.update.message
+            data = 'main_menu'
+        if str(user) not in str(self.config["admin"]):
+            return await message.reply_text("您不在管理员名单内")
+        if data == 'main_menu':
+            if query:
+                await query.edit_message_text('请选择要修改的设置：', reply_markup=self.keyword)
+            else:
+                await message.reply_text('请选择要修改的设置：', reply_markup=self.keyword)
+        elif data == 'admin':
+            accs_text = str(self.config['admin']) if self.config['admin'] else None
+            await query.edit_message_text(f"当前管理员列表：\n{accs_text}\n\n请输入新的id列表，空格分隔：",
+                                          reply_markup=back)
+            self.context.user_data['expect_input'] = 'admin'
+        elif data == 'userbot':
+            accs_text = str(self.config['accs']) if self.config['accs'] else None
+            await query.edit_message_text(f"当前账号列表：\n{accs_text}\n\n请输入新的id列表，空格分隔：",
+                                          reply_markup=back)
+            self.context.user_data['expect_input'] = 'accs'
+        elif data == 'toggle_bio_link_detect':
+            self.config['bio_link_detect'] = not self.config['bio_link_detect']
+            await query.edit_message_text(f"简介链接检测已{'开启' if self.config['bio_link_detect'] else '关闭'}",
+                                          reply_markup=back)
 
+        elif data == 'toggle_strict_mode':
+            self.config['strict_mode'] = not self.config['strict_mode']
+            await query.edit_message_text(f"严格模式已{'开启' if self.config['strict_mode'] else '关闭'}",
+                                          reply_markup=back)
+        elif data == 'manage_ban_words':
+            ban_words_text = ", ".join(self.config['ban_words'])
+            await query.edit_message_text(f"当前禁用词：{ban_words_text}\n\n请输入新的禁用词列表，用逗号分隔：",
+                                          reply_markup=back)
+            self.context.user_data['expect_input'] = 'ban_words'
+        elif data == 'close':
+            if query:
+                await query.edit_message_text('修改完成')
+            else:
+                await message.reply_text('修改完成')
+        db.put(str(self.chat_id).encode(),json.dumps(self.config).encode())
+    # 处理用户输入
+    async def input_params(self):
+        if 'expect_input' not in self.context.user_data:
+            return
+        input_type = self.context.user_data['expect_input']
+        del self.context.user_data['expect_input']
+        if input_type == 'accs':
+            self.config['accs'] = None if self.update.message.text is None else [acc.strip() for acc in self.update.message.text.split() if acc.strip()]
+            await self.update.message.reply_text("账号列表已更新", reply_markup=self.keyword)
+        elif input_type == 'admin':
+            self.config['admin'] = None if self.update.message.text is None else [acc.strip() for acc in self.update.message.text.split() if acc.strip()]
+            await self.update.message.reply_text("账号列表已更新", reply_markup=self.keyword)
+        elif input_type == 'ban_words':
+            self.config['ban_words'] = None if self.update.message.text is None else [word.strip() for word in self.update.message.text.split() if word.strip()]
+            await self.update.message.reply_text("禁用词列表已更新", reply_markup=self.keyword)
+        db.put(str(self.chat_id).encode(), json.dumps(self.config).encode())
 
 async def is_sublist_adjacent(sublist, mainlist):
     sub_len = len(sublist)
@@ -104,31 +179,18 @@ async def is_sublist_adjacent(sublist, mainlist):
             return True
     return None
 
-
-def load_config():
-    global config
-    with open("config.json", 'r', encoding='utf-8') as f:
-        config = json.load(f)
-
-
-# 保存配置到文件
-def save_config():
-    with open('config.json', 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
-
-
 async def process_ban_word(text):
     if not text:
         return None
-    if config["strict_mode"]:
-        for ban_word in config["ban_words"]:
+    if init_config["strict_mode"]:
+        for ban_word in init_config["ban_words"]:
             process_text = lazy_pinyin(text.replace(" ", ""))
             ban_pinyin = lazy_pinyin(ban_word)
             word_detect = await is_sublist_adjacent(process_text, ban_pinyin)
             if word_detect:
                 break
     else:
-        for ban_word in config["ban_words"]:
+        for ban_word in init_config["ban_words"]:
             if ban_word in text.replace(" ", ""):
                 word_detect = True
                 break
@@ -136,7 +198,7 @@ async def process_ban_word(text):
 
 
 async def process_link(text):
-    if config["bio_link_detect"]:
+    if init_config["bio_link_detect"]:
         # 私有链接模式 - 修改为捕获组以便提取后半部分
         private_link_pattern = r'\b(?:https?://)?t\.me/\+([a-zA-Z0-9_-]+)'
         # 公有群组模式 - 修改以匹配更短的用户名
@@ -160,9 +222,9 @@ async def report(update: Update, context: CallbackContext):
     if word_detect:
         await bot.ban_user(user_id)
         return await update.message.reply_text(f"用户{user_id}已被封禁")
-    if config["bio_link_detect"]:
-        if config["accs"]:
-            userbot = Userbot(config["accs"])
+    if init_config["bio_link_detect"]:
+        if init_config["accs"]:
+            userbot = Userbot(init_config["accs"])
             return_code = await userbot.login()
             if isinstance(return_code, int):
                 await update.message.reply_text(f"session{return_code}失效，已清除，请重新输入命令")
@@ -181,84 +243,70 @@ async def report(update: Update, context: CallbackContext):
 
 # 处理菜单操作
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    back = InlineKeyboardMarkup([[InlineKeyboardButton("返回主菜单", callback_data='main_menu')]])
-    query = update.callback_query
-    user = str(update.effective_user.id)
-    if query:
-        await query.answer()
-        data = query.data
+    if context.args:
+        context.user_data["chat_id"] = context.args[0]
     else:
-        message = update.message
-        data = 'main_menu'
-    if user not in config["admin"]:
-        return await message.reply_text("您不在管理员名单内")
-    if data == 'main_menu':
-        if query:
-            await query.edit_message_text('请选择要修改的设置：', reply_markup=init_keyboard)
-        else:
-            await message.reply_text('请选择要修改的设置：', reply_markup=init_keyboard)
-    elif data == 'admin':
-        accs_text = "\n".join(config['admin'])
-        await query.edit_message_text(f"当前管理员列表：\n{accs_text}\n\n请输入新的id列表，空格分隔：",
-                                      reply_markup=back)
-        context.user_data['expect_input'] = 'admin'
-    elif data == 'userbot':
-        accs_text = "\n".join(config['accs'])
-        await query.edit_message_text(f"当前账号列表：\n{accs_text}\n\n请输入新的id列表，空格分隔：",
-                                      reply_markup=back)
-        context.user_data['expect_input'] = 'accs'
-    elif data == 'toggle_bio_link_detect':
-        config['bio_link_detect'] = not config['bio_link_detect']
-        await query.edit_message_text(f"简介链接检测已{'开启' if config['bio_link_detect'] else '关闭'}",
-                                      reply_markup=back)
-        save_config()
-    elif data == 'toggle_strict_mode':
-        config['strict_mode'] = not config['strict_mode']
-        await query.edit_message_text(f"严格模式已{'开启' if config['strict_mode'] else '关闭'}",
-                                      reply_markup=back)
-        save_config()
-    elif data == 'manage_ban_words':
-        ban_words_text = ", ".join(config['ban_words'])
-        await query.edit_message_text(f"当前禁用词：{ban_words_text}\n\n请输入新的禁用词列表，用逗号分隔：",
-                                      reply_markup=back)
-        context.user_data['expect_input'] = 'ban_words'
-    elif data == 'close':
-        if query:
-            await query.edit_message_text('修改完成')
-        else:
-            await message.reply_text('修改完成')
+        if update.effective_chat.type == "private" and not context.user_data["chat_id"]:
+            return await update.message.reply_text("私聊状态下请在后面添加需要管理的群组id重试")
+        elif update.effective_chat.type != "private":
+            context.user_data["chat_id"] = update.effective_chat.id
 
+    bot = Bot(update, context)
+    await bot.menu()
 
-# 处理用户输入
-async def input_params(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if 'expect_input' not in context.user_data:
-        return
-    input_type = context.user_data['expect_input']
-    del context.user_data['expect_input']
-    if input_type == 'accs':
-        config['accs'] = [acc.strip() for acc in update.message.text.split() if acc.strip()]
-        await update.message.reply_text("账号列表已更新", reply_markup=init_keyboard)
-    elif input_type == 'admin':
-        config['admin'] = [acc.strip() for acc in update.message.text.split() if acc.strip()]
-        await update.message.reply_text("账号列表已更新", reply_markup=init_keyboard)
-    elif input_type == 'ban_words':
-        config['ban_words'] = [word.strip() for word in update.message.text.split(',') if word.strip()]
-        await update.message.reply_text("禁用词列表已更新", reply_markup=init_keyboard)
+async def init_params(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bot = Bot(update, context)
+    await bot.input_params()
 
-    save_config()
-
+async def init(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    init_config = {
+        "admin": [],
+        "accs": [],
+        "bio_link_detect": False,
+        "strict_mode": False,
+        "ocr_detect": False,
+        "ban_words": []
+    }
+    chat_id = update.message.chat_id
+    admin_origin_list = await context.bot.get_chat_administrators(chat_id)
+    admin_id_list = []
+    for admin in admin_origin_list:
+        if admin.status == "creator":
+            admin_id_list.append(admin.user.id)
+    init_config['admin'] = admin_id_list
+    db.put(str(chat_id).encode(), json.dumps(init_config).encode())
+    await update.message.reply_text("初始化完成")
 
 def main():
-    load_config()
-    application = Application.builder().token(config['bot_token']).build()
+    application = Application.builder().token(bot_token).build()
+    application.add_handler(CommandHandler("start", init))
     application.add_handler(CommandHandler("report", report))
-    application.add_handler(CommandHandler("init", menu))
+    application.add_handler(CommandHandler("config", menu))
     application.add_handler(CallbackQueryHandler(menu))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, input_params))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, init_params))
     application.run_polling()
 
 
 if __name__ == '__main__':
+    db_path = './leveldb'
+    init_config = {
+        "admin": [],
+        "accs": [],
+        "bio_link_detect": False,
+        "strict_mode": False,
+        "ocr_detect": False,
+        "ban_words": []
+    }
+    if not os.path.exists(db_path):
+        bot_token = input("请输入您的bot_token: ")
+        db = plyvel.DB('./leveldb', create_if_missing=True)
+        db.put(b'bot_token', bot_token.encode())
+    else:
+        try:
+            db = plyvel.DB('./leveldb')
+            bot_token = db.get(b'bot_token').decode()
+        except:
+            ValueError("数据库可能已损坏")
     init_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("管理员列表", callback_data='admin')],
         [InlineKeyboardButton("账号列表", callback_data='userbot')],
@@ -267,13 +315,4 @@ if __name__ == '__main__':
         [InlineKeyboardButton("管理禁用词", callback_data='manage_ban_words')],
         [InlineKeyboardButton("关闭", callback_data='close')]
     ])
-    config = {
-        "bot_token": "",
-        "admin": [],
-        "accs": [],
-        "bio_link_detect": False,
-        "strict_mode": False,
-        "ocr_detect": False,
-        "ban_words": []
-    }
     main()
