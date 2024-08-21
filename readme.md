@@ -11,7 +11,7 @@
 
 3.去除bio_link_detect
 
-4.用query.answer来弹出界面而不是发送消息
+~~4.用query.answer来弹出界面而不是发送消息~~
 
 # 运行说明
 填写好参数后安装依赖
