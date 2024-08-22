@@ -262,8 +262,10 @@ async def init(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for admin in admin_origin_list:
         if admin.status == "creator":
             admin_id_list.append(admin.user.id)
+        elif admin.status == "administrator" and admin.can_restrict_members == True:
+            admin_id_list.append(admin.user.id)
     if update.effective_user.id not in admin_id_list:
-        return await update.message.reply_text("您不是群主")
+        return await update.message.reply_text("您不是群主或者有ban权限的管理员")
     init_config = {
         "admin": admin_id_list,
         "accs": [],
